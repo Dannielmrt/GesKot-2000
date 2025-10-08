@@ -35,6 +35,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,27 +56,60 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.URL
 
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
-    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             AppTheme {
                 val snackbarHostState = remember { SnackbarHostState() }
+                val coroutineScope = rememberCoroutineScope()
+                var datos by remember { mutableStateOf<List<MyData>>(emptyList()) }
+                var cargando by remember { mutableStateOf(false) }
 
+                // --- Función que llama a la suspendida global ---
+                fun refrescarDatos() {
+                    coroutineScope.launch {
+                        cargando = true
+                        val nuevosDatos = cargarDatos()
+                        if (nuevosDatos.isNullOrEmpty()) {
+                            snackbarHostState.showSnackbar(
+                                message = "Error al cargar datos. Revisa la conexión.",
+                                actionLabel = "Reintentar"
+                            ).let { action ->
+                                if (action == SnackbarResult.ActionPerformed) {
+                                    refrescarDatos()
+                                }
+                            }
+                        } else {
+                            datos = nuevosDatos
+                        }
+                        cargando = false
+                    }
+                }
+
+                // Carga inicial automática
+                LaunchedEffect(Unit) { refrescarDatos() }
+
+                // --- Un solo Scaffold ---
                 Scaffold(
                     topBar = { MiTopAppBar() },
                     snackbarHost = { SnackbarHost(snackbarHostState) },
-
+                    floatingActionButton = {
+                        FloatingActionButton(onClick = { refrescarDatos() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refrescar")
+                        }
+                    },
                     modifier = Modifier.fillMaxSize()
                 ) { innerPadding ->
-                    ListaDataScreen(innerPadding, snackbarHostState)
+                    ListaDataScreen(innerPadding, datos, cargando)
                 }
             }
         }
     }
 }
+
 
 data class MyData(
     val Direccion: String,
@@ -86,6 +120,19 @@ data class MyData(
     val Espacios_totales: String,
     val lastUpdate: String
 )
+
+suspend fun cargarDatos(): List<MyData>? {
+    val url =
+        "https://valencia.opendatasoft.com/explore/dataset/valenbisi-disponibilitat-valenbisi-dsiponibilidad/download/?format=csv"
+
+    return withContext(Dispatchers.IO) {
+        try {
+            leerCsvComoData(url)
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -131,75 +178,32 @@ fun DataCard(data: MyData, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ListaDataScreen(innerPadding: PaddingValues, snackbarHostState: SnackbarHostState) {
-    var datos by remember { mutableStateOf<List<MyData>>(emptyList()) }
-    var cargando by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
+fun ListaDataScreen(innerPadding: PaddingValues, datos: List<MyData>, cargando: Boolean) {
+    Box(
+        modifier = Modifier
+            .padding(innerPadding)
+            .fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            cargando -> CircularProgressIndicator()
 
-    // Función para cargar o refrescar datos
-    fun cargarDatos() {
-        coroutineScope.launch {
-            cargando = true
-            val url =
-                "https://valencia.opendatasoft.com/explore/dataset/valenbisi-disponibilitat-valenbisi-dsiponibilidad/download/?format=csv"
-            val nuevosDatos = withContext(Dispatchers.IO) {
-                try {
-                    leerCsvComoData(url)
-                } catch (e: Exception) {
-                    null
-                }
-            }
+            datos.isEmpty() -> Text("Sin datos disponibles.")
 
-            if (nuevosDatos.isNullOrEmpty()) {
-                snackbarHostState.showSnackbar(
-                    message = "Error al cargar datos. Revisa la conexión.",
-                    actionLabel = "Reintentar"
-                ).let { action ->
-                    if (action == SnackbarResult.ActionPerformed) {
-                        cargarDatos()
-                    }
-                }
-            } else {
-                datos = nuevosDatos
-            }
-            cargando = false
-        }
-    }
-
-    // Carga inicial
-    LaunchedEffect(Unit) { cargarDatos() }
-
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = { cargarDatos() }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Refrescar")
-            }
-        },
-        modifier = Modifier.padding(innerPadding)
-    ) { inner ->
-        Box(
-            modifier = Modifier
-                .padding(inner)
-                .fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            when {
-                cargando -> CircularProgressIndicator()
-                datos.isEmpty() -> Text("Sin datos disponibles.")
-                else -> LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(datos, key = { it.Direccion }) { item ->
-                        DataCard(data = item)
-                    }
+            else -> LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(datos, key = { it.Direccion }) { item ->
+                    DataCard(data = item)
                 }
             }
         }
     }
 }
+
 
 fun leerCsvComoData(url: String): List<MyData> {
     val data = mutableListOf<MyData>()

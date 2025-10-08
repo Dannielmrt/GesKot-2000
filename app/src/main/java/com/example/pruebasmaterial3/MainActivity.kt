@@ -4,7 +4,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +16,8 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
@@ -27,11 +32,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.compose.AppTheme
 import com.example.compose.backgroundDark
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.URL
@@ -54,17 +67,8 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize()
 
                 ) { innerPadding ->
-                    val ejemplo = MyData(
-                        nombre = "Ana",
-                        edad = "25",
-                        ciudad = "Madrid"
-                    )
 
-                    // 👉 Se lo pasamos al composable
-                    DataCard(
-                        modifier = Modifier.padding(innerPadding),
-                        data = ejemplo
-                    )
+                    ListaDataScreen(innerPadding)
                 }
             }
         }
@@ -72,18 +76,21 @@ class MainActivity : ComponentActivity() {
 }
 
 data class MyData(
-    val nombre: String,
-    val edad: String,
-    val ciudad: String
+    val Direccion: String,
+    val Numero: String,
+    val Activo: String,
+    val Bicis_disponibles: String,
+    val Espacios_libres: String,
+    val Espacios_totales: String,
+    val lastUpdate: String
 )
 
-// Este Composable debe estar definido fuera de MainActivity
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MiTopAppBar() {
     TopAppBar(
         title = { Text("Datos del CSV") },
-        // 👇 ESTO GESTIONA LA BARRA DE ESTADO (SIN NECESIDAD DE OTRO ARGUMENTO MODIFIER)
+
         modifier = Modifier.windowInsetsPadding(
             WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
         ),
@@ -94,35 +101,10 @@ fun MiTopAppBar() {
     )
 }
 
-fun leerCsvComoData(url: String): List<MyData> {
-
-    val Data = mutableListOf<MyData>()
-    val conexion = URL(url).openConnection()
-    BufferedReader(InputStreamReader(conexion.getInputStream())).use { reader ->
-        val lineas = reader.readLines()
-        for (i in 1 until lineas.size) {
-            val columnas = lineas[i].split(",")
-            if (columnas.size >= 3) {
-                Data.add(
-                    MyData(
-                        nombre = columnas[0],
-                        edad = columnas[1],
-                        ciudad = columnas[2]
-                    )
-                )
-            }
-        }
-    }
-    return Data
-}
-
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DataCard(data: MyData, modifier: Modifier) {
-    Column(
-        modifier = modifier
-    ) {
+fun DataCard(data: MyData, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
         Card(
             modifier = Modifier
                 .padding(8.dp)
@@ -132,18 +114,78 @@ fun DataCard(data: MyData, modifier: Modifier) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = data.nombre,
-                    style = MaterialTheme.typography.titleMedium
-                )
+                    text = data.Direccion,
+                    style = MaterialTheme.typography.titleLarge)
                 Text(
-                    text = "Edad: ${data.edad}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                    text = "Bicis disponibles: ${data.Bicis_disponibles}",
+                    style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = "Ciudad: ${data.ciudad}",
-                    style = MaterialTheme.typography.bodySmall
+                    text = "Anclajes libres: ${data.Espacios_libres}",
+                    style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "Última actualización: ${data.lastUpdate}",
+                    style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+@Composable
+fun ListaDataScreen(innerPadding: PaddingValues) {
+    var datos by remember { mutableStateOf<List<MyData>>(emptyList()) } // <- importante: tipado explícito
+    var cargando by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        val url = "https://valencia.opendatasoft.com/explore/dataset/valenbisi-disponibilitat-valenbisi-dsiponibilidad/download/?format=csv"
+        datos = withContext(Dispatchers.IO) { leerCsvComoData(url) } // leerCsvComoData devuelve List<MyData>
+        cargando = false
+    }
+
+    if (cargando) {
+        Box(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Cargando datos...")
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .padding(innerPadding)
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // items(items = datos) { item: MyData -> ... } <- pongo el tipo explícito para evitar ambigüedad
+            items(items = datos, key = { it.Direccion }) { item: MyData ->
+                DataCard(data = item)
+            }
+        }
+    }
+}
+
+fun leerCsvComoData(url: String): List<MyData> {
+    val data = mutableListOf<MyData>()
+    val conexion = URL(url).openConnection()
+    BufferedReader(InputStreamReader(conexion.getInputStream())).use { reader ->
+        val lineas = reader.readLines()
+        for (i in 1 until lineas.size) { // salto cabecera
+            val columnas = lineas[i].split(";") // OJO: si no funciona, prueba con ","
+            if (columnas.size >= 8) { // el CSV de opendatasoft tiene 8 columnas en el ejemplo
+                data.add(
+                    MyData(
+                        Direccion = columnas[0],
+                        Numero = columnas[1],
+                        Activo = columnas[2],
+                        Bicis_disponibles = columnas[3],
+                        Espacios_libres = columnas[4],
+                        Espacios_totales = columnas[5],
+                        lastUpdate = columnas[7]
+                    )
                 )
             }
         }
     }
+    return data
 }
